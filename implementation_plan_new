@@ -1,0 +1,269 @@
+# AlphaAgent — AI-Powered Autonomous Trading System
+## Complete Implementation Roadmap
+
+You've already built a solid foundation. Here's exactly how to evolve it into a **production-grade, resume-worthy system** that showcases ML, Web Dev, and Agentic AI together.
+
+---
+
+## What You Already Have ✅
+
+| Component | File | Status |
+|---|---|---|
+| ORB Strategy Engine | `strategy/orb.py` | ✅ Complete — tick-by-tick, partial exits, trailing SL |
+| Order Manager | `orders/manager.py` | ✅ Complete — Paper + Live (Upstox) |
+| Live Market Feed | `data/feed.py` | ✅ Complete — WebSocket + REST (Upstox v3) |
+| Auth | `auth/upstox_auth.py` | ✅ Complete |
+| Entry Point | `main.py` | ✅ Complete — asyncio orchestration |
+| Trader Agent Stub | `agent/trader_agent.py` | 🔧 Stub — needs real LLM wiring |
+| Dashboard | `dashboard/` | ❌ Empty — placeholder |
+| NSE historical data | `NSE.csv` | ✅ Already gathered — ready for ML |
+
+---
+
+## The 3-Layer Architecture (Your 3 Skills, Unified)
+
+```
+┌─────────────────────────────────────────────────────┐
+│              LAYER 3: Web Dashboard (FastAPI + Next.js)   │
+│   Real-time P&L · Trade log · Backtesting report · Controls │
+└───────────────────────┬─────────────────────────────┘
+                        │ REST + WebSocket
+┌───────────────────────▼─────────────────────────────┐
+│              LAYER 2: Agentic AI Core               │
+│   LLM Agent · Market Context · Signal Validation    │
+│   Risk Guard · News Sentiment · Multi-tool Agent    │
+└───────────────────────┬─────────────────────────────┘
+                        │ signals + decisions
+┌───────────────────────▼─────────────────────────────┐
+│              LAYER 1: Trading Engine (Existing)      │
+│   ORB Strategy · ML Signal Filter · Order Manager  │
+│   Live Feed (Upstox WebSocket) · Backtesting       │
+└─────────────────────────────────────────────────────┘
+```
+
+---
+
+## Phase 1 — ML Signal Filter (Use your NSE.csv data) 🤖
+
+> **Goal**: Train a model that takes ORB breakout conditions and predicts if the breakout will succeed or fake-out. This is the most impactful ML addition.
+
+### What to Build
+
+#### `ml/` module
+```
+ml/
+├── feature_engineer.py    # Build features from NSE.csv
+├── train.py               # Train XGBoost / LightGBM classifier
+├── predict.py             # Load model, run inference at runtime
+├── backtest.py            # Full backtesting engine w/ ML filter
+├── models/
+│   └── orb_classifier.pkl # Saved model artifact
+└── notebooks/
+    └── eda.ipynb          # Exploratory data analysis
+```
+
+### Features to Engineer from NSE.csv
+| Feature | Description |
+|---|---|
+| `orb_range_pct` | (ORH - ORL) / ORL — normalized opening range |
+| `gap_up_pct` | Yesterday close vs today open |
+| `prev_day_trend` | -1/0/1 based on prior session direction |
+| `vix_level` | India VIX at market open (if available) |
+| `day_of_week` | Monday breakouts behave differently |
+| `breakout_strength` | How far LTP is above ORH at entry |
+| `volume_ratio` | First candle volume vs 20-day avg |
+| `time_of_breakout` | Minutes after 9:15 when breakout occurred |
+
+### Target Variable
+- **Binary**: `1` if trade reached T1 (1R) before SL, `0` if SL hit
+- **Multi-class**: `0=SL`, `1=T1`, `2=T2`, `3=T3`
+
+### Model Choice
+- **Primary**: `XGBoost` or `LightGBM` (fast, interpretable, great for tabular data)
+- **Secondary**: `LSTM` on 5-min candle sequences (optional — shows DL skills)
+
+### Integration in `main.py`
+```python
+from ml.predict import ORBSignalClassifier
+ml_filter = ORBSignalClassifier()
+
+# In on_tick(), before executing:
+if action["action"] == "BUY":
+    prob = ml_filter.predict_proba(features)
+    if prob < 0.55:   # low confidence — skip trade
+        return
+```
+
+---
+
+## Phase 2 — Agentic AI Core (Wire the LLM Agent) 🧠
+
+> **Goal**: Replace the stub `trader_agent.py` with a real multi-tool LLM agent using Google Gemini (you already have the API key).
+
+### What to Build
+
+```
+agent/
+├── trader_agent.py      # Main agent — REWRITE with real LLM
+├── tools/
+│   ├── market_tools.py  # get_ltp, get_positions, get_pnl
+│   ├── news_tools.py    # fetch_news_sentiment (GNews/NewsAPI)
+│   ├── risk_tools.py    # portfolio_risk_check, max_drawdown
+│   └── strategy_tools.py # get_strategy_status, get_backtest_results
+├── prompts/
+│   └── system_prompt.py # Agent persona + trading rules
+└── memory/
+    └── trade_journal.py # Persist agent decisions + outcomes
+```
+
+### Agent Capabilities
+1. **Signal Validator** — "Is this ORB breakout high quality? Check volume, VIX, news"
+2. **Risk Guard** — "Is max daily loss reached? Should I reduce qty?"
+3. **Market Context** — "Is the broader market (Sensex) also breaking up?"
+4. **Post-trade Analysis** — "Why did this trade fail? What can we learn?"
+
+### Implementation using Google GenAI with Function Calling
+```python
+import google.generativeai as genai
+
+tools = [get_market_context, check_risk_limits, fetch_news_sentiment]
+model = genai.GenerativeModel("gemini-1.5-flash", tools=tools)
+
+# Agent decision loop
+response = model.generate_content(
+    f"ORB BUY signal on {symbol} at {ltp}. ML confidence: {prob:.0%}. "
+    f"Validate this trade and decide: EXECUTE or SKIP."
+)
+```
+
+---
+
+## Phase 3 — Backtesting Engine 📊
+
+> **Goal**: Run your strategy + ML filter on NSE.csv to generate a performance report. This is crucial for the dashboard and resume.
+
+### What to Build
+```
+backtest/
+├── engine.py       # Simulate strategy on historical data
+├── metrics.py      # Sharpe, Sortino, Max DD, Win rate, Profit Factor
+└── report.py       # Generate HTML/JSON report
+```
+
+### Key Metrics to Compute
+- Win Rate, Avg R:R, Profit Factor
+- Sharpe Ratio, Max Drawdown
+- Monthly P&L breakdown
+- ML filter impact (trades filtered vs trades taken)
+
+---
+
+## Phase 4 — Real-Time Dashboard (Web Dev) 💻
+
+> **Goal**: A stunning Next.js + FastAPI dashboard showing live trades, P&L, agent reasoning, and backtest results.
+
+### Backend: FastAPI (`api/`)
+```
+api/
+├── main.py           # FastAPI app
+├── websocket.py      # Stream live ticks + trade events
+├── routes/
+│   ├── trades.py     # GET /trades, GET /pnl
+│   ├── backtest.py   # POST /backtest, GET /report
+│   ├── agent.py      # GET /agent/status, GET /agent/log
+│   └── strategy.py   # GET /strategy/status
+└── models.py         # Pydantic schemas
+```
+
+### Frontend: Next.js (`frontend/`)
+```
+frontend/
+├── app/
+│   ├── page.tsx              # Dashboard home
+│   ├── backtest/page.tsx     # Backtest results
+│   └── agent/page.tsx        # Agent reasoning log
+├── components/
+│   ├── LivePnL.tsx           # Real-time P&L card
+│   ├── TradeLog.tsx          # Live trade table
+│   ├── StrategyStatus.tsx    # ORB state per symbol
+│   ├── AgentLog.tsx          # Agent thoughts stream
+│   ├── EquityCurve.tsx       # P&L chart (Recharts)
+│   └── BacktestReport.tsx    # Metrics + charts
+```
+
+### Dashboard Features
+| Feature | Description |
+|---|---|
+| Live P&L | Updates in real-time via WebSocket |
+| Trade Log | All orders with entry/exit prices |
+| Agent Reasoning | Stream LLM "thoughts" as a feed |
+| Strategy Status | ORH/ORL, current state per symbol |
+| Equity Curve | Historical + today's P&L chart |
+| Backtest Report | Win rate, Sharpe, Max DD, monthly breakdown |
+| Kill Switch | One-click emergency exit all positions |
+| Paper/Live Toggle | Switch modes from the UI |
+
+---
+
+## Phase 5 — Production Deployment 🚀
+
+### Deployment Stack
+| Service | Where |
+|---|---|
+| Trading Bot (Python) | **AWS EC2** t3.micro or Render.com |
+| FastAPI Backend | Same EC2 or Railway.app |
+| Next.js Frontend | **Vercel** (free tier) |
+| Database (trade log) | **SQLite** → PostgreSQL (Supabase) |
+| Scheduler | APScheduler inside the bot |
+| Monitoring | Telegram bot for trade alerts |
+
+### Telegram Alerts (Easy win — add in 30 mins)
+```python
+# On every trade execution:
+telegram_bot.send(f"🟢 BUY NIFTY @22500 | ML Conf: 72% | Agent: EXECUTE")
+```
+
+---
+
+## Recommended Build Order
+
+```
+Week 1: Phase 1 — ML Feature Engineering + Model Training
+Week 2: Phase 1 — Backtesting Engine + Performance Report  
+Week 3: Phase 2 — Wire LLM Agent (tools + function calling)
+Week 4: Phase 3 — FastAPI backend + WebSocket
+Week 5: Phase 4 — Next.js Dashboard
+Week 6: Phase 5 — Deploy + Telegram alerts + README polish
+```
+
+---
+
+## What This Looks Like on Your Resume
+
+> **AlphaAgent — AI-Powered Autonomous Trading System**
+> *Python · XGBoost · LangChain/Gemini · FastAPI · Next.js · Upstox API*
+>
+> - Built a production-grade algorithmic trading system for NSE F&O (NIFTY, BANKNIFTY) implementing the Opening Range Breakout strategy with partial exits and trailing stop-losses
+> - Trained an XGBoost classifier on 3 years of NSE historical data to filter low-confidence ORB breakouts, improving strategy Sharpe ratio by X%
+> - Designed an LLM agent (Google Gemini) with custom tool-calling for real-time signal validation, news sentiment analysis, and risk management
+> - Built a real-time Next.js dashboard with WebSocket streaming, live P&L tracking, equity curves, and an agent reasoning log
+> - Deployed on AWS EC2 with live Upstox integration and Telegram trade alerts
+
+---
+
+## Open Questions (Need Your Input)
+
+> [!IMPORTANT]
+> **Q1: ML Data Format** — What columns does your NSE.csv have? (OHLCV per day? Per minute? Which symbols?) This determines what features we can engineer.
+
+> [!IMPORTANT]
+> **Q2: LLM Agent Framework** — Do you want to use raw `google-generativeai` with function calling, or a framework like **LangGraph** / **CrewAI** for the agent? LangGraph gives better agentic control but adds complexity.
+
+> [!IMPORTANT]
+> **Q3: Dashboard Framework** — Do you want a **Next.js** frontend (more complex, better looking) or a simpler **Streamlit** dashboard (faster to build, Python-only)? For resume, Next.js is stronger.
+
+> [!IMPORTANT]
+> **Q4: Start Point** — Which phase should we start building first? My recommendation is **Phase 1 (ML)** since you have the data ready, but we can start wherever you want.
+
+> [!NOTE]
+> **Q5: Deployment Budget** — Are you okay with a small AWS/Railway cost (~$5-10/month), or do you need a fully free deployment?
